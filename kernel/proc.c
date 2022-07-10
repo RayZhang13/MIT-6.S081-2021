@@ -303,6 +303,8 @@ fork(void)
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
+  np->mask = p->mask; //复制mask掩码
+
   pid = np->pid;
 
   release(&np->lock);
@@ -316,6 +318,25 @@ fork(void)
   release(&np->lock);
 
   return pid;
+}
+
+int trace(int mask) { 
+  struct proc *p = myproc();
+  p->mask = mask;
+  return 0;
+}
+
+int procnum(void) { 
+  struct proc *p;
+  int count = 0;
+  for (p = proc; p < &proc[NPROC]; p++) { //遍历数组
+      acquire(&p->lock); //加锁
+      if(p->state != UNUSED){ //查看状态
+          count++;
+      }
+      release(&p->lock); //解锁
+  }
+  return count;
 }
 
 // Pass p's abandoned children to init.
