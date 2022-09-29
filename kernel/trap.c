@@ -77,8 +77,22 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2) {
+    if(p->alarm_interval) { // if alarm is enalbled
+      if(--p->alarm_ticks_left <= 0) { // if ticks expired, trigger the handler func
+        if(!p->alarm_handler_lock) { // if the handler func is not running
+          // save the current trapframe
+          *p->alarm_backup = *p->trapframe;
+          // modify return address
+          p->trapframe->epc = (uint64)p->alarm_handler;
+          // set reentrant lock
+          p->alarm_handler_lock = 1;
+        }
+      }
+    }
     yield();
+  }
+    
 
   usertrapret();
 }
@@ -218,3 +232,19 @@ devintr()
   }
 }
 
+int sigalarm(int ticks, void (*handler)()) { 
+  struct proc *p = myproc();
+  p->alarm_interval = ticks;
+  p->alarm_handler = handler;
+  p->alarm_ticks_left = ticks;
+  return 0;
+}
+
+int sigreturn() { 
+  struct proc *p = myproc();
+  // restore trapframe
+  *p->trapframe = *p->alarm_backup;
+  // release reentrant lock
+  p->alarm_handler_lock = 0;
+  return 0;
+}

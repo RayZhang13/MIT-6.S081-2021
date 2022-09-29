@@ -60,6 +60,7 @@ sys_sleep(void)
 
   if(argint(0, &n) < 0)
     return -1;
+  backtrace();
   acquire(&tickslock);
   ticks0 = ticks;
   while(ticks - ticks0 < n){
@@ -94,4 +95,20 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+uint64 sys_sigalarm(void) { 
+  int n;
+  uint64 fn;
+  if(argint(0, &n) < 0) {
+      return -1;
+  }
+  if(argaddr(1, &fn) < 0) {
+      return -1;
+  }
+  return sigalarm(n, (void(*)())(fn));
+}
+
+uint64 sys_sigreturn(void) { 
+  return sigreturn(); 
 }
