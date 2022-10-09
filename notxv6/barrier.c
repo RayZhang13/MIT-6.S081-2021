@@ -31,6 +31,20 @@ barrier()
   // then increment bstate.round.
   //
   
+  // protect nthread counter
+  pthread_mutex_lock(&bstate.barrier_mutex);
+  if (++bstate.nthread < nthread) {
+    // sleep if not all threads have reached the barrier
+    pthread_cond_wait(&bstate.barrier_cond, &bstate.barrier_mutex);
+  } else {
+    // clear bstate.nthread
+    bstate.nthread = 0;
+    // imcrement on round count
+    bstate.round++;
+    // wake up all other threads
+    pthread_cond_broadcast(&bstate.barrier_cond);
+  }
+  pthread_mutex_unlock(&bstate.barrier_mutex);
 }
 
 static void *

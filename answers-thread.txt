@@ -1,0 +1,5 @@
+If two CPUs are to insert a new entry node to the current bucket which is a linked list, 
+both might excute "e->next = n;" before either excutes "*p = e;". 
+In such case, there would then be two entry nodes with next set to the former list head.
+When the two assignments to *p happen, the second one will overwrite the first; 
+the entry node involved in the first assignment will be lost.
