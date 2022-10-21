@@ -16,6 +16,8 @@
 #include "file.h"
 #include "fcntl.h"
 
+#define MAX_SYMLINK_DEPTH 10
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -322,6 +324,32 @@ sys_open(void)
     return -1;
   }
 
+  if(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)){
+    int depth = 0;
+    // Follow the symlink recursively
+    while(ip->type == T_SYMLINK){
+      // Return failure if max recursive depth exceeded
+      if(++depth == MAX_SYMLINK_DEPTH){
+        iunlockput(ip);
+        end_op();
+        return -1;
+      }
+      // Else read new target path from current symlink inode
+      if(readi(ip, 0, (uint64)path, 0, MAXPATH) < 0){
+        iunlockput(ip);
+        end_op();
+        return -1;
+      }
+      iunlockput(ip);
+      // Check if target is valid
+      if((ip = namei(path)) == 0){
+        end_op();
+        return -1; // target not exist
+      }
+      ilock(ip);
+    }
+  }
+
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
     if(f)
       fileclose(f);
@@ -482,5 +510,31 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+uint64 sys_symlink(void){
+  struct inode *ip;
+  char target[MAXPATH], path[MAXPATH];
+  int n;
+  // Get params from user space
+  if((n = argstr(0, target, MAXPATH)) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+
+  begin_op();
+  // Create inode of the symlink
+  if((ip = create(path, T_SYMLINK, 0, 0)) == 0){
+    end_op();
+    return -1;
+  }
+  // Save the target path to the first data block
+  if(writei(ip, 0, (uint64)target, 0, n) != n) {
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+
+  iunlockput(ip);
+  end_op();
   return 0;
 }
