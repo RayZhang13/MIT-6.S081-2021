@@ -5,6 +5,11 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
+#include "fcntl.h"
+#include "sleeplock.h"
+#include "file.h"
 
 /*
  * the kernel's page table.
@@ -175,7 +180,8 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     if((pte = walk(pagetable, a, 0)) == 0)
       panic("uvmunmap: walk");
     if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+      // panic("uvmunmap: not mapped");
+      continue;
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -431,4 +437,70 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// Handle page fault caused by mmaped va,
+// Return 0 on success, -1 on failure, -2 on invalid va
+int mmap_handler(uint64 va, int scause) {
+  struct proc *p = myproc();
+  int vma_index = -1;
+  if (va >= MAXVA) {
+    printf("va cannot be greater than MAXVA: %p\n", va);
+    return -2;
+  }
+  // Scan the VMA list to match va
+  for (int i = 0; i < NVMA; i++){
+    struct vma* vma = &p->vma[i];
+    if(vma->used == 1 && va >= vma->addr 
+    && va < vma->addr + PGROUNDUP(vma->len)){
+      vma_index = i;
+      break;
+    }
+  }
+  if(vma_index == -1) {
+    return -2; // VMA not found
+  }
+  struct vma *v = &p->vma[vma_index];
+
+  // Check perm bits
+  if(scause == 13 && !(v->prot & PROT_READ)) {
+    printf("mmap_handler: cannot read from unreadable vma\n");
+    return -1; // cannot read from unreadable vma
+  }
+  if(scause == 15 && !(v->prot & PROT_WRITE)) {
+    printf("mmap_handler: cannot write to unwritable vma\n");
+    return -1; // cannot write to unwritable vma
+  }
+
+  // Allocate physical page
+  va = PGROUNDDOWN(va);
+  void *pa = kalloc();
+  if(pa == 0){
+    panic("mmap_handler: kalloc failed");
+  }
+  memset(pa, 0, PGSIZE);
+
+  // Load page from file
+  struct file *f = v->f;
+  ilock(f->ip);
+  readi(f->ip, 0, (uint64)pa, v->offset + PGROUNDDOWN(va - v->addr), PGSIZE);
+  iunlock(f->ip);
+
+  // Map the page to user space
+  int perm = PTE_U;
+  if(v->prot & PROT_READ){
+    perm |= PTE_R;
+  }
+  if(v->prot & PROT_WRITE){
+    perm |= PTE_W;
+  }
+  if(v->prot & PROT_EXEC){
+    perm |= PTE_X;
+  }
+  if(mappages(p->pagetable, va, PGSIZE, (uint64)pa, perm) < 0){
+    printf("mmap_handler: failed to map page to user space. va: %p, pa: %p\n", va, pa);
+    kfree(pa);
+    return -1; // Failed to map page to user space
+  }
+  return 0;
 }

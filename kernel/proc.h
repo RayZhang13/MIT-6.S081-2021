@@ -80,6 +80,17 @@ struct trapframe {
   /* 280 */ uint64 t6;
 };
 
+// VMA state
+struct vma{
+  int used;              
+  uint64 addr;            // start va addr of the current vma
+  uint len;               // vma length
+  uint prot;              // memory protection of the mapping
+  uint flags;             // whether updates are carried through to the underlying file
+  struct file *f;         // target file
+  uint offset;            // map starts at offset in the file
+};
+
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 // Per-process state
@@ -104,5 +115,6 @@ struct proc {
   struct context context;      // swtch() here to run process
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
+  struct vma vma[NVMA];        // Table of mapped regions
   char name[16];               // Process name (debugging)
 };
